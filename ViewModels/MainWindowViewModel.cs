@@ -112,6 +112,7 @@ public sealed class MainWindowViewModel : ObservableObject
         SearchOnlineTbwCommand = new AsyncRelayCommand(SearchOnlineTbwAsync, () => SelectedDisk is not null);
         SaveOnlineTbwCommand = new AsyncRelayCommand(SaveOnlineTbwAsync, () => SelectedDisk is not null && SelectedOnlineTbwCandidate is not null);
         ToggleMonitoringCommand = new RelayCommand(ToggleMonitoring);
+        RunMaintenanceActionCommand = new ParameterRelayCommand<MaintenanceActionDisplay>(RunMaintenanceAction);
 
         _monitorTimer = new DispatcherTimer
         {
@@ -138,6 +139,8 @@ public sealed class MainWindowViewModel : ObservableObject
     public ObservableCollection<OnlineTbwCandidate> OnlineTbwCandidates { get; } = [];
     public ObservableCollection<DiskMonitorEvent> MonitorEvents { get; } = [];
     public ObservableCollection<MetricDisplay> DiskDaySummary { get; } = [];
+    public ObservableCollection<MetricDisplay> MaintenanceSummary { get; } = [];
+    public ObservableCollection<MaintenanceActionDisplay> MaintenanceActions { get; } = [];
     public ObservableCollection<string> DiskProfileOptions { get; } =
     [
         "Не задан",
@@ -186,6 +189,7 @@ public sealed class MainWindowViewModel : ObservableObject
     public ICommand SearchOnlineTbwCommand { get; }
     public ICommand SaveOnlineTbwCommand { get; }
     public ICommand ToggleMonitoringCommand { get; }
+    public ICommand RunMaintenanceActionCommand { get; }
 
     public DiskInfo? SelectedDisk
     {
@@ -494,6 +498,7 @@ public sealed class MainWindowViewModel : ObservableObject
             SelectedDisk ??= Disks.FirstOrDefault();
             UpdateSelectedDisk();
             RefreshDiskDaySummary();
+            BuildMaintenanceActions();
             StatusMessage = Disks.Count == 0
                 ? "Диски не найдены или Windows не отдала данные."
                 : $"Обновлено: {DateTime.Now:HH:mm:ss}";
@@ -656,7 +661,249 @@ public sealed class MainWindowViewModel : ObservableObject
             ProcessActivities.Add(activity);
         }
 
+        BuildMaintenanceActions();
         RefreshInvestigationContext();
+    }
+
+    private void BuildMaintenanceActions()
+    {
+        MaintenanceSummary.Clear();
+        MaintenanceActions.Clear();
+
+        var selected = SelectedDisk;
+        var disksWithTemperature = Disks.Count(d => d.TemperatureCelsius is not null);
+        var disksWithWriteCounter = Disks.Count(d => d.TotalBytesWritten is not null);
+        var warnings = _reports.Values.Count(r => r.Level is HealthLevel.Caution or HealthLevel.Warning or HealthLevel.Critical);
+        var topWriter = _lastProcessActivities
+            .OrderByDescending(a => a.WrittenBytesPerSecond.GetValueOrDefault())
+            .FirstOrDefault(a => a.WrittenBytesPerSecond.GetValueOrDefault() > 0);
+
+        MaintenanceSummary.Add(new MetricDisplay("Итог", warnings == 0
+            ? "Критичных действий прямо сейчас не требуется. Можно выполнить безопасное обслуживание Windows."
+            : $"Есть {warnings} пункт(ов), где стоит сначала посмотреть диагностику и рекомендации."));
+        MaintenanceSummary.Add(new MetricDisplay("Данные", $"Дисков: {Disks.Count}. Температура есть у {disksWithTemperature}, счетчик записи у {disksWithWriteCounter}."));
+        MaintenanceSummary.Add(new MetricDisplay("Выбранный диск", selected is null
+            ? "Диск не выбран. Часть советов показана общая."
+            : $"{FormatHelper.OptionalString(selected.Model)} · {selected.MediaTypeDisplay} · {FreeSpaceText(selected)}"));
+        MaintenanceSummary.Add(new MetricDisplay("Главный писатель", topWriter is null
+            ? "Сейчас заметной записи процессов не видно."
+            : $"{topWriter.ProcessName}: {topWriter.WrittenRateText}. Если повторяется в простое, проверьте кэш/загрузки этой программы."));
+
+        AddMaintenanceAction(
+            "Освободить место",
+            "Место",
+            selected is null ? "Выберите диск, чтобы увидеть точнее." : BuildFreeSpaceMaintenanceStatus(selected),
+            "Открывает штатную страницу Windows «Память». Сначала посмотрите рекомендации Windows, потом выбирайте, что удалять.",
+            "Безопасно: приложение ничего не удаляет само.",
+            "Открыть память Windows",
+            "storage",
+            selected is not null && CalculateFreeSpacePercent(selected) is < 15 ? "#D17A22" : "#5E9EFF");
+
+        AddMaintenanceAction(
+            "Очистка временных файлов",
+            "Место",
+            "Подходит для Windows Update cache, временных файлов, корзины и старых миниатюр.",
+            "Запускает штатную очистку диска Windows. Перед удалением Windows покажет список категорий.",
+            "Умеренно безопасно: удаление выполняет Windows после вашего выбора.",
+            "Открыть очистку диска",
+            "cleanmgr",
+            "#5E9EFF");
+
+        AddMaintenanceAction(
+            "Оптимизация SSD/TRIM",
+            "SSD",
+            selected is null
+                ? "Для SSD полезно периодически выполнять TRIM через Windows Optimize Drives."
+                : selected.MediaType is DiskMediaKind.SSD or DiskMediaKind.SataSSD or DiskMediaKind.NvmeSSD
+                    ? "Для выбранного SSD используйте штатную оптимизацию Windows. Это TRIM, не классическая дефрагментация."
+                    : "Для HDD Windows может предложить обычную дефрагментацию; для SSD нужен TRIM.",
+            "Открывает окно «Оптимизация дисков». Windows сама выбирает корректный режим для SSD/HDD.",
+            "Безопасно: используется штатный инструмент Windows.",
+            "Открыть оптимизацию",
+            "optimize",
+            "#2FA36B");
+
+        AddMaintenanceAction(
+            "Кто пишет на диск",
+            "Нагрузка",
+            topWriter is null
+                ? "Сейчас сильной записи не видно. Если диск снова начнет шуметь, откройте монитор ресурсов."
+                : $"{topWriter.ProcessName} сейчас пишет {topWriter.WrittenRateText}. Проверьте вкладку «День диска» и путь процесса.",
+            "Открывает Resource Monitor на Windows. Там можно посмотреть Disk Activity и файлы, которые читает/пишет процесс.",
+            "Безопасно: только просмотр.",
+            "Открыть монитор ресурсов",
+            "resmon",
+            topWriter?.WrittenBytesPerSecond >= 1_000_000 ? "#C9A227" : "#5E9EFF");
+
+        AddMaintenanceAction(
+            "Проверка файловой системы",
+            "Проверка",
+            selected is null
+                ? "Команда chkdsk /scan проверяет файловую систему онлайн без принудительного ремонта."
+                : $"Для разделов {VolumesText(selected)} можно начать с безопасной онлайн-проверки chkdsk /scan.",
+            "Кнопка скопирует команду. Запустите ее в терминале администратора, если хотите проверить выбранный раздел.",
+            "Осторожно: /scan обычно безопасен, а /f и /r без понимания запускать не стоит.",
+            "Скопировать chkdsk /scan",
+            "copy-chkdsk",
+            "#C9A227");
+
+        AddMaintenanceAction(
+            "Проверка системных файлов Windows",
+            "Windows",
+            "Полезно, если странности похожи не на поломку диска, а на проблемы Windows, обновлений или системных файлов.",
+            "Кнопка скопирует DISM + SFC команду. Ее нужно запускать в терминале администратора.",
+            "Осторожно: это штатный ремонт Windows, он может идти долго.",
+            "Скопировать DISM/SFC",
+            "copy-sfc",
+            "#5E9EFF");
+
+        AddMaintenanceAction(
+            "SMART и smartctl",
+            "Данные",
+            _smartCtlBootstrapService.Find(SmartCtlPath) is null
+                ? "smartctl не найден. Для NVMe/SATA он часто дает температуру, счетчики записи и ошибки лучше, чем Windows."
+                : "smartctl найден. Расширенные read-only данные доступны при обновлении диагностики.",
+            "Если данных мало, установите smartmontools или укажите путь к smartctl.exe в настройках.",
+            "Безопасно: smartctl используется только для чтения.",
+            "Открыть настройки",
+            "settings",
+            _smartCtlBootstrapService.Find(SmartCtlPath) is null ? "#C9A227" : "#2FA36B");
+
+        if (selected is not null && selected.CrcErrors.GetValueOrDefault() > 0)
+        {
+            AddMaintenanceAction(
+                "SATA-кабель / порт",
+                "Железо",
+                $"У выбранного диска есть CRC errors: {selected.CrcErrors}. Часто это кабель, порт, контакт или питание, а не сам диск.",
+                "Скопируйте чеклист: заменить SATA-кабель, другой порт, проверить питание, затем наблюдать, растет ли счетчик.",
+                "Безопасно: это ручная проверка железа, без изменения данных.",
+                "Скопировать чеклист",
+                "copy-cable",
+                "#D17A22");
+        }
+
+        if (selected?.TemperatureCelsius is not null && selected.TemperatureCelsius >= (selected.MediaType == DiskMediaKind.HDD ? 45 : 60))
+        {
+            AddMaintenanceAction(
+                "Охлаждение диска",
+                "Температура",
+                $"Температура выбранного диска {selected.TemperatureCelsius}°C. Это уже зона, где стоит проверить airflow/радиатор/нагрузку.",
+                "Сверьте температуру с процессами и нагрузкой. Для NVMe часто помогает радиатор, airflow от вентилятора и удаление пыли.",
+                "Безопасно: только рекомендации.",
+                "Скопировать чеклист",
+                "copy-cooling",
+                "#D17A22");
+        }
+    }
+
+    private void AddMaintenanceAction(
+        string title,
+        string category,
+        string status,
+        string details,
+        string safety,
+        string buttonText,
+        string actionKind,
+        string accentBrush)
+    {
+        MaintenanceActions.Add(new MaintenanceActionDisplay
+        {
+            Title = title,
+            Category = category,
+            Status = status,
+            Details = details,
+            Safety = safety,
+            ButtonText = buttonText,
+            ActionKind = actionKind,
+            AccentBrush = accentBrush
+        });
+    }
+
+    private string BuildFreeSpaceMaintenanceStatus(DiskInfo disk)
+    {
+        var freePercent = CalculateFreeSpacePercent(disk);
+        return freePercent is null
+            ? "Нет данных о свободном месте по разделам."
+            : freePercent < 10
+                ? $"Свободно около {freePercent:0.#}%. Для SSD лучше держать хотя бы 10-15% свободно."
+                : freePercent < 15
+                    ? $"Свободно около {freePercent:0.#}%. Уже близко к нижней границе для комфортной работы SSD."
+                    : $"Свободно около {freePercent:0.#}%. По месту выглядит нормально.";
+    }
+
+    private void RunMaintenanceAction(MaintenanceActionDisplay? action)
+    {
+        if (action is null)
+        {
+            return;
+        }
+
+        try
+        {
+            switch (action.ActionKind)
+            {
+                case "storage":
+                    OpenShellTarget("ms-settings:storagesense");
+                    break;
+                case "cleanmgr":
+                    OpenShellTarget("cleanmgr.exe");
+                    break;
+                case "optimize":
+                    OpenShellTarget("dfrgui.exe");
+                    break;
+                case "resmon":
+                    OpenShellTarget("resmon.exe");
+                    break;
+                case "settings":
+                    StatusMessage = "Откройте шестеренку в верхней панели и проверьте путь к smartctl.exe.";
+                    ShowToast("Откройте настройки через шестеренку");
+                    break;
+                case "copy-chkdsk":
+                    CopyMaintenanceText(BuildChkdskCommand(), "Команда chkdsk скопирована");
+                    break;
+                case "copy-sfc":
+                    CopyMaintenanceText("DISM /Online /Cleanup-Image /RestoreHealth\r\nsfc /scannow", "Команды DISM/SFC скопированы");
+                    break;
+                case "copy-cable":
+                    CopyMaintenanceText("Чеклист SATA/CRC:\r\n1. Сделать резервную копию важных данных.\r\n2. Заменить SATA-кабель.\r\n3. Подключить диск в другой SATA-порт.\r\n4. Проверить питание диска.\r\n5. Обновить данные в Disk Health Advisor и смотреть, растет ли CRC errors.", "Чеклист кабеля скопирован");
+                    break;
+                case "copy-cooling":
+                    CopyMaintenanceText("Чеклист охлаждения:\r\n1. Сверить температуру с нагрузкой и процессами.\r\n2. Проверить пыль и airflow корпуса.\r\n3. Для NVMe проверить радиатор/термопрокладку.\r\n4. Убрать постоянную запись в простое.\r\n5. Повторить проверку температуры.", "Чеклист охлаждения скопирован");
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            _ = _logger.LogAsync("Не удалось выполнить действие обслуживания.", ex);
+            StatusMessage = "Не удалось выполнить действие обслуживания. Подробности записаны в Logs/app.log.";
+            ShowToast("Действие не выполнено");
+        }
+    }
+
+    private string BuildChkdskCommand()
+    {
+        var volume = SelectedDisk?.LogicalVolumes
+            .Select(v => v.DisplayName)
+            .FirstOrDefault(v => !string.IsNullOrWhiteSpace(v) && v.Contains(':'));
+        return string.IsNullOrWhiteSpace(volume)
+            ? "chkdsk C: /scan"
+            : $"chkdsk {volume.Trim()} /scan";
+    }
+
+    private void CopyMaintenanceText(string text, string toast)
+    {
+        System.Windows.Clipboard.SetText(text);
+        StatusMessage = toast + ".";
+        ShowToast(toast);
+    }
+
+    private static void OpenShellTarget(string target)
+    {
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = target,
+            UseShellExecute = true
+        });
     }
 
     private void RefreshDiskDaySummary()
@@ -1312,6 +1559,7 @@ public sealed class MainWindowViewModel : ObservableObject
             SelectedReport = null;
             SsdResource = null;
             RefreshInvestigationContext();
+            BuildMaintenanceActions();
             NotifyComputed();
             return;
         }
@@ -1325,6 +1573,7 @@ public sealed class MainWindowViewModel : ObservableObject
         FillHistoryCharts(SelectedDisk);
         RefreshInvestigationContext();
         BuildDiagnosticWizard();
+        BuildMaintenanceActions();
 
         foreach (var warning in SelectedDisk.DataSourceWarnings.Distinct())
         {
