@@ -1,33 +1,111 @@
 # Disk Health Advisor
 
-Disk Health Advisor is a Windows desktop utility for read-only disk diagnostics. It shows disk health in plain language, watches disk activity in the tray, tracks notable write spikes, and helps understand what happened to disks during the day.
+Read-only диагностика дисков для Windows: SMART, ресурс SSD/TBW, наблюдение в трее, журнал записи процессов и дневная сводка по дискам.
 
-The app does not change disk data. It reads Windows, SMART/smartctl, local history, process write counters, and a local SSD TBW database.
+Disk Health Advisor is a Windows desktop utility for read-only disk diagnostics: SMART, SSD TBW/resource tracking, tray monitoring, process write journal, and daily disk activity overview.
 
-## Features
+## Русский
+
+Disk Health Advisor помогает понять состояние дисков человеческим языком. Программа не меняет данные на дисках: она только читает информацию Windows, SMART/smartctl, локальную историю, счетчики записи процессов и локальную базу TBW для SSD.
+
+### Возможности
+
+- Понятная сводка здоровья дисков
+- Просмотр ресурса SSD/TBW и локальная база TBW
+- Поиск TBW в интернете и ручное сохранение значения
+- Наблюдение в трее
+- Легкие проверки процессов каждые 10 секунд
+- Полный опрос дисков реже, чтобы не нагружать компьютер
+- Вкладка "День диска" с событиями, температурой, всплесками записи и советами
+- Расследования подозрительных изменений диска
+- Журнал: кто и когда заметно писал на диск
+- Темы оформления
+- Установщик Windows, собранный через Inno Setup
+
+### Скачать
+
+Обычному пользователю лучше скачивать установщик со страницы **Releases**:
+
+`DiskHealthAdvisorSetup.exe`
+
+Скрипт установщика лежит здесь:
+
+`Installer/DiskHealthAdvisorSetup.iss`
+
+### Сборка из исходников
+
+Требования:
+
+- Windows 10/11 x64
+- .NET 9 SDK
+- Опционально: Inno Setup 7, если нужно собрать установщик
+- Опционально: smartmontools/smartctl, чтобы получать больше SMART/NVMe-данных
+
+Debug-сборка:
+
+```powershell
+dotnet build
+```
+
+Запуск:
+
+```text
+bin\Debug\net9.0-windows\DiskHealthAdvisor.exe
+```
+
+Публикация self-contained x64-версии:
+
+```powershell
+dotnet publish -c Release -r win-x64 --self-contained true -o publish\win-x64
+```
+
+Сборка установщика:
+
+```powershell
+& "C:\Program Files\Inno Setup 7\ISCC.exe" "Installer\DiskHealthAdvisorSetup.iss"
+```
+
+Готовый установщик:
+
+```text
+Installer\Output\DiskHealthAdvisorSetup.exe
+```
+
+### Заметки
+
+- Некоторые SMART/NVMe-поля могут быть недоступны без smartctl или прав администратора.
+- Счетчики процессов Windows показывают общую активность чтения/записи процесса и не всегда точно привязывают процесс к физическому диску.
+- Наблюдение сделано легким: частые проверки читают счетчики процессов, а полный опрос дисков выполняется реже.
+
+## English
+
+Disk Health Advisor helps understand disk health in plain language. The app does not modify disk data. It reads Windows data, SMART/smartctl, local history, process write counters, and a local SSD TBW database.
+
+### Features
 
 - Human-readable disk health summary
 - SSD resource/TBW view with local TBW database
 - Online TBW lookup and manual TBW saving
-- Tray monitoring with lightweight 10-second process checks
-- Full disk refresh on a slower interval
-- "Disk Day" daily overview with events, temperatures, write spikes, and next steps
+- Tray monitoring
+- Lightweight 10-second process checks
+- Slower full disk refresh to avoid unnecessary load
+- "Disk Day" overview with events, temperatures, write spikes, and next steps
 - Investigations for suspicious disk changes
 - Process write journal: who wrote a lot and when
-- Custom themes and compact WPF interface
+- Custom themes
 - Self-contained Windows installer built with Inno Setup
 
-## Download
+### Download
 
-For normal use, download the installer from the GitHub Releases page:
+For normal use, download the installer from the GitHub **Releases** page:
 
 `DiskHealthAdvisorSetup.exe`
 
-The installer is built from:
+The installer script is stored here:
 
 `Installer/DiskHealthAdvisorSetup.iss`
 
-## Build From Source
+### Build From Source
 
 Requirements:
 
@@ -66,6 +144,12 @@ Installer output:
 Installer\Output\DiskHealthAdvisorSetup.exe
 ```
 
+### Notes
+
+- Some NVMe/SATA SMART fields may be unavailable without smartctl or administrator rights.
+- Windows process counters show general process read/write activity and do not always map a process to an exact physical disk.
+- Monitoring is designed to be lightweight: frequent checks read process counters, while full disk scans happen less often.
+
 ## GitHub Release Flow
 
 1. Build the app with `dotnet publish`.
@@ -73,12 +157,6 @@ Installer\Output\DiskHealthAdvisorSetup.exe
 3. Create a GitHub release, for example `v1.0.0`.
 4. Attach `Installer\Output\DiskHealthAdvisorSetup.exe` to the release.
 5. Keep `bin/`, `obj/`, `publish/`, and `Installer/Output/` out of Git commits.
-
-## Notes
-
-- Some NVMe/SATA SMART fields may be unavailable without smartctl or administrator rights.
-- Windows process counters show general process read/write activity and do not always map a process to an exact physical disk.
-- Monitoring is designed to be lightweight: frequent checks read process counters, while full disk scans happen less often.
 
 ## License
 
