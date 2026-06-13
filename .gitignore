@@ -1,0 +1,40 @@
+# Build output
+bin/
+obj/
+publish/
+
+# Installer output
+Installer/Output/
+*.msi
+
+# User/local runtime data
+Logs/
+History/
+Settings/
+*.log
+*.tmp
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Visual Studio / Rider / VS Code
+.vs/
+.idea/
+.vscode/
+*.DotSettings.user
+
+# Test and coverage output
+TestResults/
+coverage/
+*.coverage
+*.coveragexml
+
+# NuGet
+*.nupkg
+packages/
+
+# OS files
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
