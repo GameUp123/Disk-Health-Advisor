@@ -51,11 +51,13 @@ public partial class MainWindow : Window
             investigationEngine,
             new InvestigationExportService(),
             new SmartCtlBootstrapService(logger),
+            new LocalUpdateService(paths, logger),
             new WpfDialogService(),
             logger);
 
         DataContext = _viewModel;
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        _viewModel.RequestApplicationExit += OnRequestApplicationExit;
         SetupTrayIcon();
         Loaded += OnLoaded;
         StateChanged += OnStateChanged;
@@ -127,6 +129,8 @@ public partial class MainWindow : Window
 
     private void OnClosed(object? sender, EventArgs e)
     {
+        _viewModel.RequestApplicationExit -= OnRequestApplicationExit;
+
         if (_notifyIcon is null)
         {
             return;
@@ -135,6 +139,12 @@ public partial class MainWindow : Window
         _notifyIcon.Visible = false;
         _notifyIcon.Dispose();
         _notifyIcon = null;
+    }
+
+    private void OnRequestApplicationExit(object? sender, EventArgs e)
+    {
+        _isExitRequested = true;
+        Close();
     }
 
     private void HideToTray()

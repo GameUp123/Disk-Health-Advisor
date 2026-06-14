@@ -1,5 +1,6 @@
 using System.Windows;
 using Microsoft.Win32;
+using Forms = System.Windows.Forms;
 
 namespace DiskHealthAdvisor.Services;
 
@@ -15,6 +16,19 @@ public sealed class WpfDialogService : IDialogService
         };
 
         return dialog.ShowDialog() == true ? dialog.FileName : null;
+    }
+
+    public string? PickLocalUpdateSourceDirectory(string? initialDirectory)
+    {
+        using var dialog = new Forms.FolderBrowserDialog
+        {
+            Description = "Выберите папку свежей сборки Disk Health Advisor",
+            UseDescriptionForTitle = true,
+            ShowNewFolderButton = false,
+            SelectedPath = Directory.Exists(initialDirectory) ? initialDirectory : ""
+        };
+
+        return dialog.ShowDialog() == Forms.DialogResult.OK ? dialog.SelectedPath : null;
     }
 
     public string? PickMarkdownReportPath()

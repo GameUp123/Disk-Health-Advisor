@@ -32,6 +32,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private readonly InvestigationEngine _investigationEngine;
     private readonly InvestigationExportService _investigationExportService;
     private readonly SmartCtlBootstrapService _smartCtlBootstrapService;
+    private readonly LocalUpdateService _localUpdateService;
     private readonly IDialogService _dialogService;
     private readonly AppLogger _logger;
     private readonly Dictionary<string, HealthReport> _reports = [];
@@ -67,6 +68,8 @@ public sealed class MainWindowViewModel : ObservableObject
     private OnlineTbwCandidate? _selectedOnlineTbwCandidate;
     private string _investigationProcessHint = "Выберите расследование, чтобы увидеть текущую запись по процессам.";
     private string _investigationWriteHistoryHint = "Журнал заметной записи появится после наблюдения.";
+    private string _localUpdateSourcePath = "";
+    private LocalUpdateStatus _localUpdateStatus = new();
 
     public MainWindowViewModel(
         IDiskInfoProvider diskProvider,
@@ -81,6 +84,7 @@ public sealed class MainWindowViewModel : ObservableObject
         InvestigationEngine investigationEngine,
         InvestigationExportService investigationExportService,
         SmartCtlBootstrapService smartCtlBootstrapService,
+        LocalUpdateService localUpdateService,
         IDialogService dialogService,
         AppLogger logger)
     {
@@ -96,6 +100,7 @@ public sealed class MainWindowViewModel : ObservableObject
         _investigationEngine = investigationEngine;
         _investigationExportService = investigationExportService;
         _smartCtlBootstrapService = smartCtlBootstrapService;
+        _localUpdateService = localUpdateService;
         _dialogService = dialogService;
         _logger = logger;
 
@@ -113,6 +118,9 @@ public sealed class MainWindowViewModel : ObservableObject
         SaveOnlineTbwCommand = new AsyncRelayCommand(SaveOnlineTbwAsync, () => SelectedDisk is not null && SelectedOnlineTbwCandidate is not null);
         ToggleMonitoringCommand = new RelayCommand(ToggleMonitoring);
         RunMaintenanceActionCommand = new ParameterRelayCommand<MaintenanceActionDisplay>(RunMaintenanceAction);
+        PickLocalUpdateSourceCommand = new RelayCommand(PickLocalUpdateSource);
+        RefreshLocalUpdateCommand = new RelayCommand(RefreshLocalUpdateStatus);
+        ApplyLocalUpdateCommand = new AsyncRelayCommand(ApplyLocalUpdateAsync, () => CanApplyLocalUpdate);
 
         _monitorTimer = new DispatcherTimer
         {
@@ -122,6 +130,8 @@ public sealed class MainWindowViewModel : ObservableObject
 
         SeedKnowledgeBase();
     }
+
+    public event EventHandler? RequestApplicationExit;
 
     public ObservableCollection<DiskInfo> Disks { get; } = [];
     public ObservableCollection<MetricDisplay> DiskDetails { get; } = [];
@@ -190,6 +200,9 @@ public sealed class MainWindowViewModel : ObservableObject
     public ICommand SaveOnlineTbwCommand { get; }
     public ICommand ToggleMonitoringCommand { get; }
     public ICommand RunMaintenanceActionCommand { get; }
+    public ICommand PickLocalUpdateSourceCommand { get; }
+    public ICommand RefreshLocalUpdateCommand { get; }
+    public ICommand ApplyLocalUpdateCommand { get; }
 
     public DiskInfo? SelectedDisk
     {
@@ -405,6 +418,36 @@ public sealed class MainWindowViewModel : ObservableObject
         }
     }
 
+    public string LocalUpdateSourcePath
+    {
+        get => _localUpdateSourcePath;
+        set
+        {
+            if (SetProperty(ref _localUpdateSourcePath, value ?? ""))
+            {
+                _settings.LocalUpdateSourceDirectory = _localUpdateSourcePath;
+                _ = _settingsService.SaveAsync(_settings);
+                RefreshLocalUpdateStatus();
+            }
+        }
+    }
+
+    public string LocalUpdateStatusText => _localUpdateStatus.Summary;
+
+    public string LocalUpdateProblemText => _localUpdateStatus.Problem;
+
+    public string LocalUpdateCurrentBuildText => _localUpdateStatus.CurrentBuildText;
+
+    public string LocalUpdateSourceBuildText => _localUpdateStatus.SourceBuildText;
+
+    public string LocalUpdateCurrentPathText => string.IsNullOrWhiteSpace(_localUpdateStatus.CurrentExePath)
+        ? AppContext.BaseDirectory
+        : _localUpdateStatus.CurrentExePath;
+
+    public bool HasLocalUpdateProblem => !string.IsNullOrWhiteSpace(_localUpdateStatus.Problem);
+
+    public bool CanApplyLocalUpdate => _localUpdateStatus.CanApply;
+
     public string ThemeAccentBrush => ThemeKey switch
     {
         "graphite" => "#A7B0BC",
@@ -454,6 +497,8 @@ public sealed class MainWindowViewModel : ObservableObject
         SmartCtlPath = _settings.SmartCtlPath ?? "";
         ExpertMode = _settings.ExpertMode;
         SelectedTheme = string.IsNullOrWhiteSpace(_settings.ThemeName) ? "Океан" : _settings.ThemeName;
+        LocalUpdateSourcePath = _settings.LocalUpdateSourceDirectory ?? "";
+        RefreshLocalUpdateStatus();
         RefreshSmartCtlStatus();
         await LoadMonitorEventsAsync();
         await RefreshAsync();
@@ -904,6 +949,50 @@ public sealed class MainWindowViewModel : ObservableObject
             FileName = target,
             UseShellExecute = true
         });
+    }
+
+    private void PickLocalUpdateSource()
+    {
+        var selected = _dialogService.PickLocalUpdateSourceDirectory(LocalUpdateSourcePath);
+        if (string.IsNullOrWhiteSpace(selected))
+        {
+            return;
+        }
+
+        LocalUpdateSourcePath = selected;
+        ShowToast("Папка локального обновления выбрана");
+    }
+
+    private void RefreshLocalUpdateStatus()
+    {
+        _localUpdateStatus = _localUpdateService.Inspect(LocalUpdateSourcePath);
+        OnPropertyChanged(nameof(LocalUpdateStatusText));
+        OnPropertyChanged(nameof(LocalUpdateProblemText));
+        OnPropertyChanged(nameof(LocalUpdateCurrentBuildText));
+        OnPropertyChanged(nameof(LocalUpdateSourceBuildText));
+        OnPropertyChanged(nameof(LocalUpdateCurrentPathText));
+        OnPropertyChanged(nameof(HasLocalUpdateProblem));
+        OnPropertyChanged(nameof(CanApplyLocalUpdate));
+
+        if (ApplyLocalUpdateCommand is AsyncRelayCommand applyLocalUpdate)
+        {
+            applyLocalUpdate.RaiseCanExecuteChanged();
+        }
+    }
+
+    private async Task ApplyLocalUpdateAsync()
+    {
+        RefreshLocalUpdateStatus();
+        if (!CanApplyLocalUpdate)
+        {
+            ShowToast("Локальное обновление не готово");
+            return;
+        }
+
+        await _localUpdateService.StartApplyAsync(_localUpdateStatus);
+        StatusMessage = "Локальное обновление запущено. Приложение закроется, файлы обновятся, затем оно откроется снова.";
+        ShowToast("Запускаю локальное обновление");
+        RequestApplicationExit?.Invoke(this, EventArgs.Empty);
     }
 
     private void RefreshDiskDaySummary()
@@ -2275,6 +2364,11 @@ public sealed class MainWindowViewModel : ObservableObject
         if (ExportInvestigationCommand is AsyncRelayCommand exportInvestigation)
         {
             exportInvestigation.RaiseCanExecuteChanged();
+        }
+
+        if (ApplyLocalUpdateCommand is AsyncRelayCommand applyLocalUpdate)
+        {
+            applyLocalUpdate.RaiseCanExecuteChanged();
         }
     }
 
