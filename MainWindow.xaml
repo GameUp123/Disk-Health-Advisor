@@ -951,6 +951,8 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="12"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="12"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1" CornerRadius="8" Padding="14">
                         <DockPanel>
@@ -993,7 +995,174 @@
                         </StackPanel>
                     </Border>
 
-                    <ItemsControl Grid.Row="4" ItemsSource="{Binding MonitorEvents}">
+                    <Border Grid.Row="4" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1" CornerRadius="8" Padding="14">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="320"/>
+                                <ColumnDefinition Width="16"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Диски за сегодня" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                                <TextBlock Text="Выберите диск, чтобы увидеть отдельно его события, ресурс и темп записи."
+                                           Foreground="{StaticResource MutedTextBrush}"
+                                           TextWrapping="Wrap"
+                                           Margin="0,0,0,10"/>
+                                <ListBox ItemsSource="{Binding Disks}"
+                                         SelectedItem="{Binding SelectedDisk}"
+                                         MaxHeight="390"
+                                         ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Background="{StaticResource PanelAltBrush}"
+                                                    BorderBrush="#2E3845"
+                                                    BorderThickness="1"
+                                                    CornerRadius="6"
+                                                    Padding="10"
+                                                    Margin="0,0,0,8">
+                                                <StackPanel>
+                                                    <TextBlock Text="{Binding Model}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="{Binding MediaTypeDisplay}" Foreground="{StaticResource MutedTextBrush}" FontSize="12" Margin="0,3,0,0"/>
+                                                    <DockPanel Margin="0,8,0,0">
+                                                        <Border DockPanel.Dock="Left"
+                                                                Background="{Binding HealthBadgeBrush}"
+                                                                CornerRadius="4"
+                                                                Padding="7,3"
+                                                                Margin="0,0,8,0">
+                                                            <TextBlock Text="{Binding HealthBadge}" FontSize="11" FontWeight="SemiBold"/>
+                                                        </Border>
+                                                        <TextBlock Text="{Binding UserProfile}" Foreground="{StaticResource MutedTextBrush}" FontSize="11" VerticalAlignment="Center"/>
+                                                    </DockPanel>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="{Binding SelectedDiskDayTitle}" FontSize="20" FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding SelectedDiskDaySubtitle}"
+                                           Foreground="{StaticResource MutedTextBrush}"
+                                           TextWrapping="Wrap"
+                                           Margin="0,4,0,10"/>
+                                <Border Background="{Binding ThemeAccentSoftBrush}"
+                                        BorderBrush="{Binding ThemeAccentBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="6"
+                                        Padding="12"
+                                        Margin="0,0,0,12">
+                                    <TextBlock Text="{Binding SelectedDiskDayVerdict}" TextWrapping="Wrap" FontWeight="SemiBold"/>
+                                </Border>
+
+                                <ItemsControl ItemsSource="{Binding SelectedDiskDayDetails}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <UniformGrid Columns="3"/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Background="{StaticResource PanelAltBrush}"
+                                                    BorderBrush="#2E3845"
+                                                    BorderThickness="1"
+                                                    CornerRadius="6"
+                                                    Padding="10"
+                                                    Margin="0,0,10,10">
+                                                <StackPanel>
+                                                    <TextBlock Text="{Binding Name}" Foreground="{StaticResource MutedTextBrush}" FontSize="12" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="{Binding Value}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <Grid Margin="0,4,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="12"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <Border Grid.Column="0"
+                                            Background="{StaticResource PanelAltBrush}"
+                                            BorderBrush="#2E3845"
+                                            BorderThickness="1"
+                                            CornerRadius="6"
+                                            Padding="10">
+                                        <StackPanel>
+                                            <TextBlock Text="Что происходило с этим диском" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{Binding SelectedDiskDayEventsHint}"
+                                                       Foreground="{StaticResource MutedTextBrush}"
+                                                       TextWrapping="Wrap"
+                                                       Margin="0,4,0,8"/>
+                                            <ItemsControl ItemsSource="{Binding SelectedDiskDayEvents}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Border BorderBrush="#2E3845"
+                                                                BorderThickness="1"
+                                                                CornerRadius="5"
+                                                                Padding="8"
+                                                                Margin="0,0,0,6">
+                                                            <StackPanel>
+                                                                <TextBlock Text="{Binding TimeText}" Foreground="{StaticResource MutedTextBrush}" FontSize="12"/>
+                                                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                                                                <TextBlock Text="{Binding Details}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                                            </StackPanel>
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Grid.Column="2"
+                                            Background="{StaticResource PanelAltBrush}"
+                                            BorderBrush="#2E3845"
+                                            BorderThickness="1"
+                                            CornerRadius="6"
+                                            Padding="10">
+                                        <StackPanel>
+                                            <TextBlock Text="Кто писал рядом по времени" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{Binding SelectedDiskDayProcessHint}"
+                                                       Foreground="{StaticResource MutedTextBrush}"
+                                                       TextWrapping="Wrap"
+                                                       Margin="0,4,0,8"/>
+                                            <ItemsControl ItemsSource="{Binding SelectedDiskDayProcessEvents}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Border BorderBrush="#2E3845"
+                                                                BorderThickness="1"
+                                                                CornerRadius="5"
+                                                                Padding="8"
+                                                                Margin="0,0,0,6">
+                                                            <Grid>
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="75"/>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="110"/>
+                                                                </Grid.ColumnDefinitions>
+                                                                <TextBlock Grid.Column="0" Text="{Binding TimeText}" Foreground="{StaticResource MutedTextBrush}" FontSize="12"/>
+                                                                <StackPanel Grid.Column="1">
+                                                                    <TextBlock Text="{Binding ProcessTitle}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                                                    <TextBlock Text="{Binding PossibleCause}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" FontSize="12" Margin="0,3,0,0"/>
+                                                                </StackPanel>
+                                                                <TextBlock Grid.Column="2" Text="{Binding WriteRateText}" HorizontalAlignment="Right" FontWeight="SemiBold"/>
+                                                            </Grid>
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <ItemsControl Grid.Row="6" ItemsSource="{Binding MonitorEvents}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
                                     <Border Background="{StaticResource PanelBrush}" BorderBrush="#2E3845" BorderThickness="1" CornerRadius="7" Padding="12" Margin="0,0,0,10">

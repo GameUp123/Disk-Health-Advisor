@@ -149,6 +149,9 @@ public sealed class MainWindowViewModel : ObservableObject
     public ObservableCollection<OnlineTbwCandidate> OnlineTbwCandidates { get; } = [];
     public ObservableCollection<DiskMonitorEvent> MonitorEvents { get; } = [];
     public ObservableCollection<MetricDisplay> DiskDaySummary { get; } = [];
+    public ObservableCollection<MetricDisplay> SelectedDiskDayDetails { get; } = [];
+    public ObservableCollection<DiskMonitorEvent> SelectedDiskDayEvents { get; } = [];
+    public ObservableCollection<DiskMonitorEvent> SelectedDiskDayProcessEvents { get; } = [];
     public ObservableCollection<MetricDisplay> MaintenanceSummary { get; } = [];
     public ObservableCollection<MaintenanceActionDisplay> MaintenanceActions { get; } = [];
     public ObservableCollection<string> DiskProfileOptions { get; } =
@@ -490,6 +493,26 @@ public sealed class MainWindowViewModel : ObservableObject
         HealthLevel.Critical => "#D94B4B",
         _ => "#6F7B8A"
     };
+
+    public string SelectedDiskDayTitle => SelectedDisk is null
+        ? "Выберите диск"
+        : FormatHelper.OptionalString(SelectedDisk.Model);
+
+    public string SelectedDiskDaySubtitle => SelectedDisk is null
+        ? "Выберите диск, чтобы увидеть его день отдельно."
+        : $"{SelectedDisk.MediaTypeDisplay} · {FormatHelper.Bytes(SelectedDisk.SizeBytes)} · {VolumesText(SelectedDisk)}";
+
+    public string SelectedDiskDayVerdict => BuildSelectedDiskDayVerdict();
+
+    public string SelectedDiskDayEventsHint => SelectedDisk is null
+        ? "Нет выбранного диска."
+        : SelectedDiskDayEvents.Count == 0
+            ? "По этому диску сегодня не было отдельных предупреждений. Это хорошо: журнал не видел резкого ухудшения SMART, температуры или счетчиков."
+            : $"События именно этого диска за сегодня: {SelectedDiskDayEvents.Count}.";
+
+    public string SelectedDiskDayProcessHint => SelectedDiskDayProcessEvents.Count == 0
+        ? "Заметных всплесков записи процессов сегодня не поймано."
+        : "Это общие записи процессов Windows за день. Windows не всегда сообщает точный физический диск, поэтому сверяйте время всплеска с ростом записи выбранного диска.";
 
     public async Task InitializeAsync()
     {
@@ -1083,7 +1106,319 @@ public sealed class MainWindowViewModel : ObservableObject
             ? "Нет событий."
             : $"{latestEvent.TimeText}: {latestEvent.Title}. {FormatEventOwner(latestEvent)}"));
         DiskDaySummary.Add(new MetricDisplay("Что проверить первым", BuildDayNextStep(criticalCount, warningCount, processEvents.Count, recurringProcesses.Count, knownTemperatureCount, knownWriteCounterCount)));
+        RefreshSelectedDiskDay();
     }
+
+    private void RefreshSelectedDiskDay()
+    {
+        SelectedDiskDayDetails.Clear();
+        SelectedDiskDayEvents.Clear();
+        SelectedDiskDayProcessEvents.Clear();
+
+        if (SelectedDisk is null)
+        {
+            SelectedDiskDayDetails.Add(new MetricDisplay("Итог", "Выберите диск, чтобы увидеть его дневную сводку."));
+            NotifySelectedDiskDayChanged();
+            return;
+        }
+
+        var disk = SelectedDisk;
+        var report = _reports.GetValueOrDefault(disk.Identity);
+        var tbw = _tbwRecords.GetValueOrDefault(disk.Identity);
+        var trend = CalculateWriteTrend(disk);
+        var diskEvents = MonitorEvents
+            .Where(e => string.Equals(e.DiskIdentity, disk.Identity, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(e => e.Timestamp)
+            .ToList();
+        var processEvents = MonitorEvents
+            .Where(e => !string.IsNullOrWhiteSpace(e.ProcessName))
+            .OrderByDescending(e => e.Timestamp)
+            .Take(8)
+            .ToList();
+
+        foreach (var item in diskEvents.Take(8))
+        {
+            SelectedDiskDayEvents.Add(item);
+        }
+
+        foreach (var item in processEvents)
+        {
+            SelectedDiskDayProcessEvents.Add(item);
+        }
+
+        SelectedDiskDayDetails.Add(new MetricDisplay("Итог по диску", BuildSelectedDiskDayVerdict()));
+        SelectedDiskDayDetails.Add(new MetricDisplay("Состояние сейчас", report is null
+            ? "Нет свежего отчета по этому диску."
+            : $"{FormatHelper.LevelText(report.Level)}. {report.Summary}"));
+        SelectedDiskDayDetails.Add(new MetricDisplay("Температура", disk.TemperatureCelsius is null
+            ? "Нет данных. Для NVMe/SATA часто помогает smartctl или запуск от администратора."
+            : $"{disk.TemperatureCelsius}°C. Источник: {TemperatureSourceText(disk)}."));
+        SelectedDiskDayDetails.Add(new MetricDisplay("Запись сегодня", trend.TodayWrittenBytes is null
+            ? "Пока нет пары сегодняшних снимков, чтобы посчитать прирост записи."
+            : $"{FormatHelper.Bytes(trend.TodayWrittenBytes)} за окно {FormatTrendWindow(trend.TodayWindow)}."));
+        SelectedDiskDayDetails.Add(new MetricDisplay("Темп записи", trend.AverageBytesPerDay is null
+            ? "Недостаточно истории для честного среднего темпа."
+            : $"{FormatBytesPerDay(trend.AverageBytesPerDay.Value)}. Основано на {trend.SnapshotCount} снимк(ах): {trend.TrendSource}."));
+        SelectedDiskDayDetails.Add(new MetricDisplay("Ресурс SSD/TBW", BuildTbwForecastText(disk, tbw, trend)));
+        SelectedDiskDayDetails.Add(new MetricDisplay("События диска", diskEvents.Count == 0
+            ? "Сегодня по этому диску отдельных тревог не было."
+            : $"За сегодня событий: {diskEvents.Count}. Последнее: {diskEvents[0].TimeText} - {diskEvents[0].Title}."));
+        SelectedDiskDayDetails.Add(new MetricDisplay("Общие записи процессов", processEvents.Count == 0
+            ? "Сегодня заметных процессовых всплесков не поймано."
+            : $"Поймано {processEvents.Count} последних всплеск(ов). Самый свежий: {processEvents[0].ProcessTitle}, {processEvents[0].WriteRateText}."));
+        SelectedDiskDayDetails.Add(new MetricDisplay("Что делать", BuildSelectedDiskDayNextStep(disk, report, tbw, trend, diskEvents.Count, processEvents.Count)));
+
+        NotifySelectedDiskDayChanged();
+    }
+
+    private string BuildSelectedDiskDayVerdict()
+    {
+        if (SelectedDisk is null)
+        {
+            return "Выберите диск.";
+        }
+
+        var disk = SelectedDisk;
+        var report = _reports.GetValueOrDefault(disk.Identity);
+        var diskEvents = MonitorEvents.Count(e => string.Equals(e.DiskIdentity, disk.Identity, StringComparison.OrdinalIgnoreCase));
+        var trend = CalculateWriteTrend(disk);
+        var tbw = _tbwRecords.GetValueOrDefault(disk.Identity);
+        var tbwWarning = IsTbwForecastShort(disk, tbw, trend);
+
+        if (report?.Level is HealthLevel.Critical)
+        {
+            return "По этому диску есть серьезный риск. Сначала сделайте резервную копию важных данных, потом разбирайте причины.";
+        }
+
+        if (report?.Level is HealthLevel.Warning)
+        {
+            return "Диск требует внимания: есть признаки повышенного риска. Лучше открыть диагностику и расследование по этому диску.";
+        }
+
+        if (diskEvents > 0)
+        {
+            return "Сегодня по этому диску были отдельные события. Ниже показано, что именно происходило и когда.";
+        }
+
+        if (tbwWarning)
+        {
+            return "Сейчас явной аварии не видно, но темп записи заметный относительно заявленного TBW.";
+        }
+
+        if (report?.Level is HealthLevel.Caution)
+        {
+            return "Диск выглядит рабочим, но есть пункты для наблюдения. Следите за повторением событий и ростом счетчиков.";
+        }
+
+        return "По выбранному диску сейчас все выглядит спокойно. Тревожных событий за день не найдено.";
+    }
+
+    private WriteTrend CalculateWriteTrend(DiskInfo disk)
+    {
+        var snapshots = _history
+            .Where(s => s.DiskIdentity == disk.Identity && s.TotalBytesWritten is not null)
+            .OrderBy(s => s.Timestamp)
+            .ToList();
+
+        var now = DateTimeOffset.Now;
+        var today = now.ToLocalTime().Date;
+        var currentWritten = disk.TotalBytesWritten;
+        ulong? todayWritten = null;
+        TimeSpan? todayWindow = null;
+
+        var firstToday = snapshots.FirstOrDefault(s => s.Timestamp.ToLocalTime().Date == today);
+        if (firstToday?.TotalBytesWritten is not null && currentWritten is not null)
+        {
+            todayWritten = currentWritten.Value >= firstToday.TotalBytesWritten.Value
+                ? currentWritten.Value - firstToday.TotalBytesWritten.Value
+                : 0;
+            todayWindow = now - firstToday.Timestamp;
+        }
+
+        double? averageBytesPerDay = null;
+        var source = "история пока короткая";
+
+        if (todayWritten is not null && todayWindow is not null && todayWindow.Value.TotalMinutes >= 30)
+        {
+            averageBytesPerDay = todayWritten.Value / Math.Max(todayWindow.Value.TotalDays, 1d / 48d);
+            source = "сегодняшний темп";
+        }
+        else if (snapshots.Count >= 2 && currentWritten is not null)
+        {
+            var first = snapshots.First();
+            if (first.TotalBytesWritten is not null)
+            {
+                var delta = currentWritten.Value >= first.TotalBytesWritten.Value
+                    ? currentWritten.Value - first.TotalBytesWritten.Value
+                    : 0;
+                var window = now - first.Timestamp;
+                if (window.TotalHours >= 1)
+                {
+                    averageBytesPerDay = delta / Math.Max(window.TotalDays, 1d / 24d);
+                    source = "средний темп по истории";
+                }
+            }
+        }
+
+        return new WriteTrend(todayWritten, todayWindow, averageBytesPerDay, source, snapshots.Count);
+    }
+
+    private string BuildTbwForecastText(DiskInfo disk, SsdTbwRecord? tbw, WriteTrend trend)
+    {
+        var isSsd = disk.MediaType is DiskMediaKind.SSD or DiskMediaKind.SataSSD or DiskMediaKind.NvmeSSD;
+        if (!isSsd)
+        {
+            return "Для HDD TBW обычно не используют. Важнее SMART-ошибки, температура и поверхность.";
+        }
+
+        if (tbw is null || tbw.Tbw <= 0)
+        {
+            return "Нет TBW в базе. Добавьте TBW во вкладке «Ресурс SSD», тогда прогноз ресурса станет понятнее.";
+        }
+
+        if (disk.TotalBytesWritten is null)
+        {
+            return $"TBW известен: {tbw.Tbw:0.##} ТБ, но Windows/smartctl не отдали общий счетчик записи.";
+        }
+
+        var tbwBytes = tbw.Tbw * 1_000_000_000_000m;
+        var written = disk.TotalBytesWritten.Value;
+        var usedPercent = (decimal)written / tbwBytes * 100m;
+        var baseText = $"Записано {FormatHelper.Terabytes(written)} из {tbw.Tbw:0.##} ТБ ({usedPercent:0.#}%).";
+
+        if (written >= tbwBytes)
+        {
+            return baseText + " Заявленный TBW уже пройден. Это не значит мгновенную поломку, но резервная копия обязательна.";
+        }
+
+        if (trend.AverageBytesPerDay is null || trend.AverageBytesPerDay.Value <= 0)
+        {
+            return baseText + " Темпа записи пока не хватает для прогноза по дням.";
+        }
+
+        var remainingBytes = (double)(tbwBytes - written);
+        var days = remainingBytes / trend.AverageBytesPerDay.Value;
+        return baseText + $" Если писать примерно в таком темпе, до TBW ориентировочно {FormatDuration(days)}.";
+    }
+
+    private static bool IsTbwForecastShort(DiskInfo disk, SsdTbwRecord? tbw, WriteTrend trend)
+    {
+        if (tbw is null || tbw.Tbw <= 0 || disk.TotalBytesWritten is null || trend.AverageBytesPerDay is null || trend.AverageBytesPerDay.Value <= 0)
+        {
+            return false;
+        }
+
+        var remainingBytes = (double)(tbw.Tbw * 1_000_000_000_000m - disk.TotalBytesWritten.Value);
+        return remainingBytes > 0 && remainingBytes / trend.AverageBytesPerDay.Value < 365;
+    }
+
+    private static string BuildSelectedDiskDayNextStep(
+        DiskInfo disk,
+        HealthReport? report,
+        SsdTbwRecord? tbw,
+        WriteTrend trend,
+        int diskEventCount,
+        int processEventCount)
+    {
+        if (report?.Level is HealthLevel.Critical or HealthLevel.Warning)
+        {
+            return "Сначала резервная копия, затем откройте «Расследование» и проверьте конкретные причины.";
+        }
+
+        if (diskEventCount > 0)
+        {
+            return "Сверьте время событий ниже с температурой, нагрузкой и тем, какие программы писали в этот момент.";
+        }
+
+        if (disk.MediaType is DiskMediaKind.SSD or DiskMediaKind.SataSSD or DiskMediaKind.NvmeSSD &&
+            (tbw is null || tbw.Tbw <= 0))
+        {
+            return "Добавьте TBW для SSD, чтобы прогноз ресурса был не общим, а привязанным к модели.";
+        }
+
+        if (trend.AverageBytesPerDay is null)
+        {
+            return "Оставьте программу в трее на несколько часов: появится больше точек истории и темп записи станет честнее.";
+        }
+
+        if (processEventCount > 0)
+        {
+            return "Если диск шумит или растет запись, смотрите общие всплески процессов и сверяйте их с ростом записи этого диска.";
+        }
+
+        return "Ничего срочного. Можно просто оставить наблюдение включенным и иногда смотреть эту карточку.";
+    }
+
+    private void NotifySelectedDiskDayChanged()
+    {
+        OnPropertyChanged(nameof(SelectedDiskDayTitle));
+        OnPropertyChanged(nameof(SelectedDiskDaySubtitle));
+        OnPropertyChanged(nameof(SelectedDiskDayVerdict));
+        OnPropertyChanged(nameof(SelectedDiskDayEventsHint));
+        OnPropertyChanged(nameof(SelectedDiskDayProcessHint));
+    }
+
+    private static string FormatTrendWindow(TimeSpan? window)
+    {
+        if (window is null)
+        {
+            return "нет данных";
+        }
+
+        if (window.Value.TotalHours >= 1)
+        {
+            return $"{window.Value.TotalHours:0.#} ч";
+        }
+
+        return $"{Math.Max(1, window.Value.TotalMinutes):0} мин";
+    }
+
+    private static string FormatBytesPerDay(double bytesPerDay)
+    {
+        if (bytesPerDay <= 0 || double.IsNaN(bytesPerDay) || double.IsInfinity(bytesPerDay))
+        {
+            return "нет данных";
+        }
+
+        return $"{FormatHelper.Bytes((ulong)Math.Min(bytesPerDay, ulong.MaxValue))}/день";
+    }
+
+    private static string FormatDuration(double days)
+    {
+        if (double.IsNaN(days) || double.IsInfinity(days) || days < 0)
+        {
+            return "нет данных";
+        }
+
+        if (days >= 3650)
+        {
+            return "больше 10 лет";
+        }
+
+        if (days >= 730)
+        {
+            return $"{days / 365d:0.#} года";
+        }
+
+        if (days >= 365)
+        {
+            return "около 1 года";
+        }
+
+        if (days >= 60)
+        {
+            return $"{days / 30d:0.#} месяца";
+        }
+
+        return $"{Math.Max(1, days):0} дней";
+    }
+
+    private readonly record struct WriteTrend(
+        ulong? TodayWrittenBytes,
+        TimeSpan? TodayWindow,
+        double? AverageBytesPerDay,
+        string TrendSource,
+        int SnapshotCount);
 
     private static string BuildDayVerdict(int eventCount, int criticalCount, int warningCount, int processEventCount, int riskyDiskCount)
     {
@@ -1647,6 +1982,7 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             SelectedReport = null;
             SsdResource = null;
+            RefreshSelectedDiskDay();
             RefreshInvestigationContext();
             BuildMaintenanceActions();
             NotifyComputed();
@@ -1660,6 +1996,7 @@ public sealed class MainWindowViewModel : ObservableObject
         FillHistoryDetails(SelectedDisk);
         FillRiskCategories(SelectedDisk, SelectedReport, tbw);
         FillHistoryCharts(SelectedDisk);
+        RefreshSelectedDiskDay();
         RefreshInvestigationContext();
         BuildDiagnosticWizard();
         BuildMaintenanceActions();
