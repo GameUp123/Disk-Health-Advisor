@@ -155,6 +155,20 @@ public partial class MainWindow : Window
         Activate();
     }
 
+    public void ShowFromSingleInstanceSignal()
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(ShowFromSingleInstanceSignal);
+            return;
+        }
+
+        ShowFromTray();
+        Topmost = true;
+        Topmost = false;
+        Focus();
+    }
+
     private void OpenSettings_Click(object sender, RoutedEventArgs e)
     {
         SettingsOverlay.Visibility = Visibility.Visible;
