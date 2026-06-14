@@ -202,6 +202,72 @@
             </Setter>
         </Style>
 
+        <Style x:Key="DiskDayDiskListBoxStyle" TargetType="ListBox">
+            <Setter Property="Background" Value="#101820"/>
+            <Setter Property="Foreground" Value="#E7EDF3"/>
+            <Setter Property="BorderBrush" Value="#405068"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="6"/>
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBox">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6"
+                                Padding="{TemplateBinding Padding}">
+                            <ScrollViewer Focusable="False"
+                                          Padding="0"
+                                          VerticalScrollBarVisibility="{TemplateBinding ScrollViewer.VerticalScrollBarVisibility}"
+                                          HorizontalScrollBarVisibility="{TemplateBinding ScrollViewer.HorizontalScrollBarVisibility}">
+                                <ItemsPresenter/>
+                            </ScrollViewer>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="DiskDayDiskListBoxItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="#E7EDF3"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0,0,8,8"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="ItemChrome"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="7"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                              TextElement.Foreground="{TemplateBinding Foreground}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ItemChrome" Property="Background" Value="#192A24"/>
+                                <Setter TargetName="ItemChrome" Property="BorderBrush" Value="#2FA36B"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="ItemChrome" Property="Background" Value="#1A2C44"/>
+                                <Setter TargetName="ItemChrome" Property="BorderBrush" Value="#5E9EFF"/>
+                                <Setter Property="Foreground" Value="#FFFFFF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style TargetType="TextBox">
             <Setter Property="Background" Value="#10161D"/>
             <Setter Property="Foreground" Value="#E7EDF3"/>
@@ -1011,6 +1077,8 @@
                                            Margin="0,0,0,10"/>
                                 <ListBox ItemsSource="{Binding Disks}"
                                          SelectedItem="{Binding SelectedDisk}"
+                                         Style="{StaticResource DiskDayDiskListBoxStyle}"
+                                         ItemContainerStyle="{StaticResource DiskDayDiskListBoxItemStyle}"
                                          MaxHeight="390"
                                          ScrollViewer.VerticalScrollBarVisibility="Auto">
                                     <ListBox.ItemTemplate>
@@ -1019,8 +1087,7 @@
                                                     BorderBrush="#2E3845"
                                                     BorderThickness="1"
                                                     CornerRadius="6"
-                                                    Padding="10"
-                                                    Margin="0,0,0,8">
+                                                    Padding="10">
                                                 <StackPanel>
                                                     <TextBlock Text="{Binding Model}" FontWeight="SemiBold" TextWrapping="Wrap"/>
                                                     <TextBlock Text="{Binding MediaTypeDisplay}" Foreground="{StaticResource MutedTextBrush}" FontSize="12" Margin="0,3,0,0"/>
