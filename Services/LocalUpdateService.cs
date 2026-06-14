@@ -96,25 +96,25 @@ public sealed class LocalUpdateService
         var startInfo = new ProcessStartInfo
         {
             FileName = "powershell.exe",
+            Arguments = string.Join(
+                " ",
+                "-NoProfile",
+                "-ExecutionPolicy Bypass",
+                "-File",
+                QuoteArgument(scriptPath),
+                "-Source",
+                QuoteArgument(status.SourceDirectory),
+                "-Target",
+                QuoteArgument(targetDirectory),
+                "-Exe",
+                QuoteArgument(targetExePath),
+                "-Pid",
+                Environment.ProcessId.ToString(CultureInfo.InvariantCulture),
+                "-Log",
+                QuoteArgument(logPath)),
             UseShellExecute = true,
             WorkingDirectory = scriptDirectory
         };
-
-        startInfo.ArgumentList.Add("-NoProfile");
-        startInfo.ArgumentList.Add("-ExecutionPolicy");
-        startInfo.ArgumentList.Add("Bypass");
-        startInfo.ArgumentList.Add("-File");
-        startInfo.ArgumentList.Add(scriptPath);
-        startInfo.ArgumentList.Add("-Source");
-        startInfo.ArgumentList.Add(status.SourceDirectory);
-        startInfo.ArgumentList.Add("-Target");
-        startInfo.ArgumentList.Add(targetDirectory);
-        startInfo.ArgumentList.Add("-Exe");
-        startInfo.ArgumentList.Add(targetExePath);
-        startInfo.ArgumentList.Add("-Pid");
-        startInfo.ArgumentList.Add(Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
-        startInfo.ArgumentList.Add("-Log");
-        startInfo.ArgumentList.Add(logPath);
 
         if (!CanWriteToDirectory(targetDirectory))
         {
@@ -178,6 +178,8 @@ public sealed class LocalUpdateService
 
     private static string NormalizeDirectory(string directory) =>
         Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+    private static string QuoteArgument(string value) => "\"" + value.Replace("\"", "\\\"") + "\"";
 
     private static string FormatBuild(DateTime? value) =>
         value is null ? "Нет данных" : value.Value.ToString("dd.MM.yyyy HH:mm:ss", CultureInfo.CurrentCulture);
